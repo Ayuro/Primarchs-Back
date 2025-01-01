@@ -6,8 +6,8 @@ import cors from 'cors';
 import mongoose from 'mongoose';
 
 /** Init DB */
-const dataBase = mongoose();
-mongoose.connect('mongodb://localhost:27017/mydb', {
+const dataBase = mongoose;
+dataBase.connect('mongodb+srv://Ayuro:1TUyQJktKPQGsx21@cluster0.cxsbqca.mongodb.net/', {
     useNewUrlParser: true,
     useUnifiedTopology: true,
 }).then(() => {
