@@ -2,13 +2,12 @@
 
 /** Server Imports */
 import express from 'express';
-import path from 'path';
 // import expressSession from 'express-session';
-// import nodePath from "node:path";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import cors from 'cors';
 import 'dotenv/config';
 // import compression from "compression";
-// import { fileURLToPath } from "node:url";
 
 /** MongoDB Imports */
 import mongoose from 'mongoose';
@@ -32,21 +31,18 @@ dataBase.connect(String(process.env.MONGOURL), {
 
 /** Init server */
 const server = express();
-// const staticPath = path.join(__dirname, '/');
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const staticPath = path.join(__dirname, '/front/browser');
 const port = String(process.env.PORT);
-// server.use(express.static(staticPath));
-server.use(cors());
+server.use(express.static(staticPath));
+// server.use(cors());
+
+server.set('view engine', 'html');
 
 /** Root management routes */
 
-server.get('/', (req, res, next) => {
-    console.log("Am I awake?");
-    return res.render('front/src/index.js');
-});
-
-/** Account management routes */
-
-server.route('/register')
+server.route('/api/register')
     .get((req, res, next) => {
         console.log("Am I about to sign something?");
         return res.render(/*Une page angular*/(err, html) => {
@@ -118,15 +114,19 @@ server.route('/register')
         return res.json(notificationMessage)
     });
 
-server.get('/login', (req, res, next) => {
+server.get('/api/login', (req, res, next) => {
     console.log("Honey, I'm home!");
     return res.send();
 })
 
-server.get('/logout', (req, res, next) => {
+server.get('/api/logout', (req, res, next) => {
     console.log("I'm just getting cigarettes, it will take 10mins");
     return res.send();
 })
+
+server.use('*', (req, res) => {
+    res.sendFile(`${staticPath}/index.html`);
+});
 
 /** Server listening */
 
