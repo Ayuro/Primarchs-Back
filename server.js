@@ -12,7 +12,7 @@ import 'dotenv/config';
 /** MongoDB Imports */
 import mongoose from 'mongoose';
 // import { v4 as uuid } from 'uuid';
-// import bcrypt from "bcrypt";
+import bcrypt from "bcrypt";
 // import bodyParser from "body-parser";
 
 /** Init DB */
@@ -29,6 +29,20 @@ dataBase.connect(String(process.env.MONGOURL), {
     console.error('MongoDB connection error:', error);
 });
 
+const userSchema = new dataBase.Schema({
+    userName: {
+        type: String,
+        required: true,
+        unique: true
+    },
+    password: {
+        type: String,
+        required: true
+    }
+});
+
+// module.exports = mongoose.model('User', userSchema);
+
 /** Init server */
 const server = express();
 const __filename = fileURLToPath(import.meta.url);
@@ -43,76 +57,32 @@ server.set('view engine', 'html');
 /** Root management routes */
 
 server.route('/api/register')
-    .get((req, res, next) => {
+    .get((req, res) => {
         console.log("Am I about to sign something?");
-        return res.render(/*Une page angular*/(err, html) => {
-            if (err) {
-                return res.send(err.message);
-            }
-            if (html) {
-                return res.send(html);
-            }
-        })
-    }).post(async (req, res, next) => {
-        const userName = req.body?.userName;
-        const userPassword = req.body?.userPassword;
-        const userId = uuid();
-        const saltRounds = 15;
-        let notificationMessage = {};
+    })
+    .post(async (req, res) => {
+       const { userName, password } = req.body;
 
-        if (userPassword && userName) {
-            try {
-                const findUserResult = await findOne(
-                    String(process.env.DBNAME),
-                    'users',
-                    {userName: userName} 
-                );
+       try{
+        const existingUser = await UserActivation.findOne({ userName: userName});
 
-                if (!findUserResult) {
-                    try {
-                        const hashedPassword = await bcrypt.hash(userPassword, saltRounds);
-
-                        await insertOne(
-                            String(process.env.DBNAME),
-                            'users',
-                            {
-                                id: userId,
-                                userName: userName,
-                                password: hashedPassword
-                            }
-                        );
-                    } catch (error) {
-                        return next(error);
-                    }
-
-                    notificationMessage = {
-                        message: `Un nouveau compte a été créé pour le pseudonyme: ${userName}. Vous allez être redirigé vers la page de connexion dans quelques instants`,
-                        url: '/login',
-                        timeout: 10000,
-                        success: true
-                    };
-
-                    req.session.user = {
-                        id: userId,
-                        userName: userName
-                    }
-                } else {
-                    notificationMessage = {
-                        message: "Ce pseudonyme existe déjà. Veuillez en choisir un différent",
-                        success: false
-                    };
-                }
-            } catch(error) {
-                return next(error);
-            }
-        } else {
-            notificationMessage = {
-                message: "Il manque une information nécessaire (Pseudonyme et/ou mot de passe). Merci de vérifier que vous ayait bien rempli tout les champs marqué d'une astérisque",
-                success: false
-            };
+        if (existingUser) {
+            return res.status(400).json({ message: 'This user already exist'});
         }
-        return res.json(notificationMessage)
+
+        const hashedPassword = await bcrypt.hash(password, 15);
+
+        const newUser = new UserActivation({ userName, password: hashedPassword });
+        await newUser.save();
+
+        res.status(201).json({ message: "Your account have been created" });
+       } catch (error) {
+        console.error("Error during registration:", error);
+        res.status(500).json({ message: "Server Error" });
+       }
     });
+
+// module.exports = router;
 
 server.get('/api/login', (req, res, next) => {
     console.log("Honey, I'm home!");
