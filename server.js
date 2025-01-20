@@ -2,69 +2,62 @@
 
 /** Server Imports */
 import express from 'express';
-// import expressSession from 'express-session';
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import cors from 'cors';
 import 'dotenv/config';
-// import compression from "compression";
 
 /** MongoDB Imports */
 import mongoose from 'mongoose';
-// import { v4 as uuid } from 'uuid';
 import bcrypt from "bcrypt";
-// import bodyParser from "body-parser";
+import User from './models/user.js';
+import jwt from 'jsonwebtoken';
+import authenticateToken from './srcs/js/middlewares/jwt-validation.js';
 
-/** Init DB */
+/** INIT DB */
+
 const dataBase = mongoose;
-dataBase.connect(String(process.env.MONGOURL), {
-    useNewUrlParser: true,
-    useUnifiedTopology: true,
-}).then(() => {
-    const dbName = String(process.env.DBNAME);
-    const collection = "users";
-    const jwtSecret = String(process.env.JWT_SECRET);
+dataBase.connect(String(process.env.MONGOURL), {dbName: String(process.env.DBNAME)}).then(() => {
     console.log('Connected to Mongo');
 }).catch((error) => {
     console.error('MongoDB connection error:', error);
 });
 
-const userSchema = new dataBase.Schema({
-    userName: {
-        type: String,
-        required: true,
-        unique: true
-    },
-    password: {
-        type: String,
-        required: true
-    }
-});
+/** INIT SERVER */
 
-// module.exports = mongoose.model('User', userSchema);
+const corsOptions = {
+    origin: 'http://localhost:4200', // Allow only Angular frontend
+    methods: ['GET', 'POST'], // Allow specific HTTP methods
+    allowedHeaders: ['Content-Type', 'Authorization'] // Allow specific headers
+  };
 
-/** Init server */
 const server = express();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const staticPath = path.join(__dirname, '/front/browser');
 const port = String(process.env.PORT);
+const SECRET_KEY = String(process.env.SECRET_KEY);
 server.use(express.static(staticPath));
-// server.use(cors());
+server.use(cors(corsOptions));
+server.use(express.json())
 
 server.set('view engine', 'html');
 
-/** Root management routes */
+
+/** MANAGEMENT ROUTES */
+
+    /** Register */
 
 server.route('/api/register')
-    .get((req, res) => {
-        console.log("Am I about to sign something?");
-    })
     .post(async (req, res) => {
        const { userName, password } = req.body;
 
+       if (!userName || !password) {
+        return res.status(400).json({ message: 'Missing username or password' });
+    }
+
        try{
-        const existingUser = await UserActivation.findOne({ userName: userName});
+        const existingUser = await User.findOne({ userName: userName});
 
         if (existingUser) {
             return res.status(400).json({ message: 'This user already exist'});
@@ -72,7 +65,7 @@ server.route('/api/register')
 
         const hashedPassword = await bcrypt.hash(password, 15);
 
-        const newUser = new UserActivation({ userName, password: hashedPassword });
+        const newUser = new User({ userName, password: hashedPassword, role: "user" });
         await newUser.save();
 
         res.status(201).json({ message: "Your account have been created" });
@@ -82,11 +75,38 @@ server.route('/api/register')
        }
     });
 
-// module.exports = router;
+    /** Login */
 
-server.get('/api/login', (req, res, next) => {
-    console.log("Honey, I'm home!");
-    return res.send();
+server.route('/api/login')
+    .post(async (req, res) => {
+    const { userName, password } = req.body;
+
+    if ( !userName || !password ) {
+        return res.status(400).json({ message: "Missing userName of password"});
+    }
+
+    try {
+        const user = await User.findOne({ userName });
+        if (!user) {
+            return res.status(404).json({ message: "User not found" });
+        }
+
+        const isMatch = await bcrypt.compare(password, user.password);
+        if (!isMatch) {
+            return res.status(401).json({ message: 'Invalid password' });
+        }
+
+        const token = jwt.sign(
+            { userId: user._id, userName: user.userName },
+            SECRET_KEY,
+            { expiresIn: '2h', }
+        );
+
+        res.status(200).json({ message: `Hi, access granted ${userName}`, token });
+    } catch (error) {
+        console.error("Error during login: ", error);
+        res.status(500).json({ message: "Server error"});
+    }
 })
 
 server.get('/api/logout', (req, res, next) => {
