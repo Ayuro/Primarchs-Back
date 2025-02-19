@@ -15,7 +15,6 @@ import jwt from 'jsonwebtoken';
 import WallPost from './models/wallpost.js';
 
 /** INIT DB */
-
 const dataBase = mongoose;
 dataBase.connect(String(process.env.MONGOURL), {dbName: String(process.env.DBNAME)}).then(() => {
     console.log('Connected to Mongo');
@@ -24,7 +23,6 @@ dataBase.connect(String(process.env.MONGOURL), {dbName: String(process.env.DBNAM
 });
 
 /** INIT SERVER */
-
 const corsOptions = {
     origin: 'http://localhost:4200',
     methods: ['GET', 'POST'],
@@ -40,14 +38,31 @@ const SECRET_KEY = String(process.env.SECRET_KEY);
 server.use(express.static(staticPath));
 server.use(cors(corsOptions));
 server.use(express.json())
-
 server.set('view engine', 'html');
 
+
+/** AUTHENTICATION VARIABLE */
+const authenticate = (req, res, next) => {
+    const token = req.headers['authorization']?.split(' ')[1];
+    console.log('Received token:', token);
+
+    if (!token) {
+        return res.status(401).json({ message: 'No token provided' });
+    }
+
+    jwt.verify(token, SECRET_KEY, (err, decoded) => {
+        if (err) {
+            console.error('Token verification error:', err);
+            return res.status(401).json({ message: 'Invalid token' });
+        }
+        req.user = decoded;
+        next();
+    });
+};
 
 /** MANAGEMENT ROUTES */
 
     /** Register */
-
 server.route('/api/register')
     .post(async (req, res) => {
        const { userName, email, password, firstName, lastName, gender, age } = req.body;
@@ -76,7 +91,6 @@ server.route('/api/register')
     });
 
     /** Login */
-
 server.route('/api/login')
     .post(async (req, res) => {
     const { userName, password } = req.body;
@@ -110,154 +124,132 @@ server.route('/api/login')
 })
 
     /** Logout */
-
 server.get('/api/logout', (req, res, next) => {
     console.log("I'm just getting cigarettes, it will take 10mins");
     return res.send();
 })
 
-const authenticate = (req, res, next) => {
-    const token = req.headers['authorization']?.split(' ')[1];
-    console.log('Received token:', token);
-
-    if (!token) {
-        return res.status(401).json({ message: 'No token provided' });
-    }
-
-    jwt.verify(token, SECRET_KEY, (err, decoded) => {
-        if (err) {
-            console.error('Token verification error:', err);
-            return res.status(401).json({ message: 'Invalid token' });
-        }
-        req.user = decoded;
-        next();
-    });
-};
-
     /** Wall */
-    server.get('/api/wall/posts', authenticate, async (req, res) => {
-        try {
-            const loggedInUserId = req.user.userId;
+server.get('/api/wall/posts', authenticate, async (req, res) => {
+    try {
+        const loggedInUserId = req.user.userId;
+        const user = await User.findById(loggedInUserId).populate('friends', '_id');
         
-            const user = await User.findById(loggedInUserId).populate('friends', '_id');
-        
-            if (!user) {
-              return res.status(404).json({ message: 'User not found' });
-            }
-
-            const friendIds = user.friends.map(friend => friend._id);
-            friendIds.push(loggedInUserId);
-            const posts = await WallPost.find({ userId: { $in: friendIds } })
-              .sort({ createdAt: -1 })
-              .populate('userId', 'userName');
-        
-            res.json(posts);
-          } catch (error) {
-            console.error('Error fetching posts:', error);
-            res.status(500).json({ message: 'Server error' });
-          }
-      });
-      
-    server.post('/api/wall/post', authenticate, async (req, res) => {
-        try {
-            const { userId, content } = req.body;
-
-            if (!userId || !content.trim()) {
-                return res.status(400).json({ message: "User ID and content are required." });
-            }
-
-            const newPost = new WallPost({ userId, content, createdAt: new Date() });
-            await newPost.save();
-          
-            res.status(201).json(newPost);
-        } catch (error) {
-            console.error("Error saving post:", error);
-            res.status(500).json({ message: "Server error" });
+        if (!user) {
+          return res.status(404).json({ message: 'User not found' });
         }
-    });
+
+        const friendIds = user.friends.map(friend => friend._id);
+        friendIds.push(loggedInUserId);
+        const posts = await WallPost.find({ userId: { $in: friendIds } })
+            .sort({ createdAt: -1 })
+            .populate('userId', 'userName');
+        
+        res.json(posts);
+    } catch (error) {
+        console.error('Error fetching posts:', error);
+        res.status(500).json({ message: 'Server error' });
+    }
+});
+      
+server.post('/api/wall/post', authenticate, async (req, res) => {
+    try {
+        const { userId, content } = req.body;
+
+        if (!userId || !content.trim()) {
+            return res.status(400).json({ message: "User ID and content are required." });
+        }
+
+        const newPost = new WallPost({ userId, content, createdAt: new Date() });
+        await newPost.save();
+        res.status(201).json(newPost);
+    } catch (error) {
+        console.error("Error saving post:", error);
+        res.status(500).json({ message: "Server error" });
+    }
+});
     
-      server.get('/api/wall/:userId', authenticate, async (req, res) => {
-        try {
-          const { userId } = req.params;
-          const posts = await WallPost.find({ userId }).sort({ createdAt: -1 });
+server.get('/api/wall/:userId', authenticate, async (req, res) => {
+    try {
+        const { userId } = req.params;
+        const posts = await WallPost.find({ userId }).sort({ createdAt: -1 });
       
-          res.json(posts);
-        } catch (error) {
-          console.error("Error fetching posts:", error);
-          res.status(500).json({ message: "Server error" });
-        }
-      });      
+        res.json(posts);
+    } catch (error) {
+        console.error("Error fetching posts:", error);
+        res.status(500).json({ message: "Server error" });
+    }
+});      
 
     /** Profil */
 
-    server.get('/api/profil/:userId', async (req, res) => {
-      try {
-          const userId = req.params.userId;
+server.get('/api/profil/:userId', async (req, res) => {
+    try {
+        const userId = req.params.userId;
   
-          if (!userId) {
-              return res.status(400).json({ message: 'User ID is required' });
-          }
+        if (!userId) {
+            return res.status(400).json({ message: 'User ID is required' });
+        }
   
-          const user = await User.findById(userId).select('-password');
-          if (!user) {
-              console.log("User not found in database.");
-              return res.status(404).json({ message: 'User not found' });
-          }
+        const user = await User.findById(userId).select('-password');
+        if (!user) {
+            console.log("User not found in database.");
+            return res.status(404).json({ message: 'User not found' });
+        }
   
-          console.log("User found:", user);
-          res.json(user);
-      } catch (error) {
-          console.error("Database error:", error);
-          res.status(500).json({ message: 'Server error', error: error.message });
-      }
-  });  
+        console.log("User found:", user);
+        res.json(user);
+    } catch (error) {
+        console.error("Database error:", error);
+        res.status(500).json({ message: 'Server error', error: error.message });
+    }
+});  
 
 server.put('/api/profil', authenticate, async (req, res) => {
-  console.log('Authenticated user:', req.user);
+    console.log('Authenticated user:', req.user);
+    try {
+        const { userName, email, firstName, lastName, gender, age } = req.body;
 
-  try {
-      const { userName, email, firstName, lastName, gender, age } = req.body;
+        if (!userName || !email || !firstName || !lastName || !gender || !age) {
+            return res.status(400).json({ message: 'All fields are required' });
+        }
 
-      if (!userName || !email || !firstName || !lastName || !gender || !age) {
-          return res.status(400).json({ message: 'All fields are required' });
-      }
+        const updatedUser = await User.findByIdAndUpdate(
+            req.user.userId,
+            { userName, email, firstName, lastName, gender, age },
+            { new: true, runValidators: true }
+        );
 
-      const updatedUser = await User.findByIdAndUpdate(
-          req.user.userId,
-          { userName, email, firstName, lastName, gender, age },
-          { new: true, runValidators: true }
-      );
+        if (!updatedUser) {
+            return res.status(404).json({ message: 'User not found' });
+        }
 
-      if (!updatedUser) {
-          return res.status(404).json({ message: 'User not found' });
-      }
-
-      res.status(200).json({ message: 'Profile updated successfully', updatedUser });
-  } catch (error) {
-      console.error("Error updating profile:", error);
-      res.status(500).json({ message: 'Error updating profile' });
-  }
+        res.status(200).json({ message: 'Profile updated successfully', updatedUser });
+    } catch (error) {
+        console.error("Error updating profile:", error);
+        res.status(500).json({ message: 'Error updating profile' });
+    }
 });
 
     /** Search user */
 
 server.get('/api/users/search', async (req, res) => {
-  const { query } = req.query;
+    const { query } = req.query;
 
-  if (!query) {
-    return res.status(400).json({ message: 'Query parameter is required' });
-  }
+    if (!query) {
+        return res.status(400).json({ message: 'Query parameter is required' });
+    }
 
-  try {
-    const users = await User.find({ 
-      userName: { $regex: query, $options: 'i' }
-    }, 'userName _id');
+    try {
+        const users = await User.find({ 
+            userName: { $regex: query, $options: 'i' }
+        }, 'userName _id');
 
-    res.status(200).json(users);
-  } catch (error) {
-    console.error('Error during user search:', error);
-    res.status(500).json({ message: 'Server Error' });
-  }
+        res.status(200).json(users);
+    } catch (error) {
+        console.error('Error during user search:', error);
+        res.status(500).json({ message: 'Server Error' });
+    }
 });
 
     /** Friend request */
@@ -266,33 +258,32 @@ server.post('/api/friends/request', async (req, res) => {
     const { requesterId, recipientId } = req.body;
   
     if (!requesterId || !recipientId) {
-      return res.status(400).json({ message: 'Both requesterId and recipientId are required' });
+        return res.status(400).json({ message: 'Both requesterId and recipientId are required' });
     }
   
     try {
-      const recipient = await User.findById(recipientId);
+        const recipient = await User.findById(recipientId);
   
-      if (!recipient) {
-        return res.status(404).json({ message: 'Recipient not found' });
-      }
+        if (!recipient) {
+            return res.status(404).json({ message: 'Recipient not found' });
+        }
   
-      const isAlreadyRequested = recipient.friendRequests.some(request => request === requesterId);
+        const isAlreadyRequested = recipient.friendRequests.some(request => request === requesterId);
   
-      if (isAlreadyRequested) {
-        return res.status(400).json({ message: 'Friend request already sent' });
-      }
-
-      recipient.friendRequests.push(requesterId);
-      await recipient.save();
+        if (isAlreadyRequested) {
+            return res.status(400).json({ message: 'Friend request already sent' });
+        }
+        recipient.friendRequests.push(requesterId);
+        await recipient.save();
   
-      res.status(200).json({ message: 'Friend request sent successfully' });
+        res.status(200).json({ message: 'Friend request sent successfully' });
     } catch (error) {
-      console.error('Error during friend request:', error);
-      res.status(500).json({ message: 'Server Error' });
+        console.error('Error during friend request:', error);
+        res.status(500).json({ message: 'Server Error' });
     }
 });
   
-/** Friend list */
+    /** Friend list */
 
 server.get('/api/friends/:userId', async (req, res) => {
     const { userId } = req.params;
@@ -309,71 +300,59 @@ server.get('/api/friends/:userId', async (req, res) => {
     }
 });
 
-server.use('*', (req, res) => {
-    res.sendFile(`${staticPath}/index.html`);
-});
-
 server.get('/api/friends/requests/:userId', authenticate, async (req, res) => {
     
     const { userId } = req.params;
     res.setHeader('Content-Type', 'application/json');
-    console.log('Received friend requests request for:', req.params.userId);
-    console.log("out of try");
     try {
         const user = await User.findById(userId).populate('friendRequests', 'userName _id');
-        console.log("in try");
         if (!user) {
-            console.log("404");
             return res.status(404).json({ message: 'User not found' });
         }
-
+        
         res.status(200).json({ friendRequests: user.friendRequests });
-        console.log("200");
     } catch (error) {
         console.error('Error fetching friend requests:', error);
-        console.log("500");
         res.status(500).json({ message: 'Server error' });
     }
 });
 
 server.put('/api/friends/accept', async (req, res) => {
     const { userId, requesterId } = req.body;
-  
+    
     try {
-      await FriendRequestModel.findOneAndDelete({ requesterId, recipientId: userId });
-      await UserModel.findByIdAndUpdate(userId, { $push: { friends: requesterId } });
-      await UserModel.findByIdAndUpdate(requesterId, { $push: { friends: userId } });
-  
-      res.json({ message: 'Friend request accepted successfully' });
+        await FriendRequestModel.findOneAndDelete({ requesterId, recipientId: userId });
+        await UserModel.findByIdAndUpdate(userId, { $push: { friends: requesterId } });
+        await UserModel.findByIdAndUpdate(requesterId, { $push: { friends: userId } });
+        
+        res.json({ message: 'Friend request accepted successfully' });
     } catch (error) {
-      res.status(500).json({ error: 'Error accepting friend request' });
+        res.status(500).json({ error: 'Error accepting friend request' });
     }
-  });
-  
+});
+
 server.put('/api/friends/reject', authenticate, async (req, res) => {
     const { userId, requesterId } = req.body;
-
+    
     if (!userId || !requesterId) {
         return res.status(400).json({ message: 'userId and requesterId are required' });
     }
-
+    
     try {
         const user = await User.findById(userId);
-
+        
         if (!user) {
             return res.status(404).json({ message: 'User not found' });
         }
-
-        // Check if the requesterId is in the friendRequests
+        
         const index = user.friendRequests.indexOf(requesterId);
         if (index === -1) {
             return res.status(400).json({ message: 'No pending friend request from this user' });
         }
-
-        // Remove the friend request
+        
         user.friendRequests.splice(index, 1);
         await user.save();
-
+        
         res.status(200).json({ message: 'Friend request rejected' });
     } catch (error) {
         console.error('Error rejecting friend request:', error);
@@ -381,6 +360,9 @@ server.put('/api/friends/reject', authenticate, async (req, res) => {
     }
 });
 
+server.use('*', (req, res) => {
+    res.sendFile(`${staticPath}/index.html`);
+});
 
 /** Server listening */
 
